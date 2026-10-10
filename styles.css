@@ -184,3 +184,10 @@ textarea:focus, input:focus, select:focus { outline: none; border-color: var(--a
   opacity: 0; pointer-events: none; transition: .25s; z-index: 20; max-width: calc(100% - 32px); text-align: center;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+.hook { position: relative; background: var(--surface); border-radius: 16px; padding: 16px 44px 16px 16px; margin: 18px 0 4px; text-align: left; }
+.hook p { font-size: 15px; margin-bottom: 12px; }
+.hook-x { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; }
+.small-btn { min-height: 38px; padding: 8px 16px; font-size: 14px; text-decoration: none; }
+.deeper { display: block; width: 100%; margin-top: 14px; background: none; border: 0; padding: 12px 4px; color: var(--accent); font: 500 15px var(--body); text-align: center; cursor: pointer; }
+.guide-card .btn { margin-top: 6px; text-decoration: none; }

@@ -3,7 +3,7 @@
 
   // Код психолога: открывает все уровни и «Мой голос» сразу. Можно поменять здесь
   const PSY_CODE = 'взрослая';
-  const GUIDE_URL = 'https://shtemenko-t.github.io/rvr';
+  const GUIDE_URL = 'https://shtemenko-t.github.io/rvr?from=app';
   const SITE_URL = 'https://shtemenko-t.github.io/';
   const PASS_PCT = 70;
   const PASS_RUNS = 3;
@@ -12,7 +12,7 @@
 
   // ---------- Хранилище ----------
   function fresh() {
-    return { runs: { 1: [], 2: [], 3: [], 4: [] }, seen: {}, code: false, diary: [], introSeen: false, installHidden: false };
+    return { runs: { 1: [], 2: [], 3: [], 4: [] }, seen: {}, hooks: {}, code: false, diary: [], introSeen: false, installHidden: false };
   }
   let st = fresh();
   try {
@@ -69,6 +69,26 @@
   const voiceUnlocked = () => st.code || passed(4);
   const theoryUnlocked = lvl => lvl === 0 || (lvl === 5 ? voiceUnlocked() : unlocked(lvl));
 
+  // ---------- Крючки на гайд ----------
+  // Не больше одного на экране итогов. Закрытый или открытый крючок больше не показывается
+  const HOOKS = {
+    parent: 'Заметила, что чаще всего ошибаешься на Родителе? Откуда он берётся и как с ним договориться — разбираю в гайде',
+    conflict: 'Почему в ссорах с близкими включается Ребёнок, а внутренний критик говорит голосом родителей — подробно в гайде',
+    first: 'Распознавать — первый шаг. Как выходить из привычных сценариев в общении — в гайде «Родитель, Взрослый, Ребёнок»'
+  };
+  const hookOpen = id => !(st.hooks && st.hooks[id]);
+  function closeHook(id) { st.hooks = st.hooks || {}; st.hooks[id] = true; save(); }
+  function pickHook(results, lvl) {
+    const wrong = results.filter(r => r.kind === 'choice' && r.correct === false);
+    const parentWrong = wrong.filter(r => /Родитель/.test(r.right) || /Родитель/.test(r.picked));
+    if (hookOpen('parent') && parentWrong.length >= 2 && parentWrong.length * 2 >= wrong.length) return 'parent';
+    if (hookOpen('conflict') && (lvl === 3 || lvl === 4)) return 'conflict';
+    if (hookOpen('first')) return 'first';
+    return null;
+  }
+  const hookCard = id => '<aside class="hook"><button class="hook-x" data-act="hook-close" data-hook="' + id + '" aria-label="Скрыть">×</button>' +
+    '<p>' + esc(HOOKS[id]) + '</p><a class="btn ghost small-btn" href="' + GUIDE_URL + '" target="_blank" rel="noopener" data-hook-link="' + id + '">Читать гайд</a></aside>';
+
   // ---------- Навигация ----------
   let view = 'home';
   let sess = null;
@@ -79,7 +99,7 @@
     window.scrollTo(0, 0);
   }
   function render() {
-    const views = { home, train, result, theory, voice, settings };
+    const views = { home, train, result, theory, voice, settings, guide };
     app.innerHTML = views[view]();
     if (view === 'voice') bindVoice();
   }
@@ -143,7 +163,8 @@
       '</div></section></div>';
 
     h += '<nav class="bottom-links"><button class="btn ghost" data-act="go" data-v="theory">Теория</button>' +
-      '<button class="btn ghost" data-act="go" data-v="settings">Настройки</button></nav>';
+      '<button class="btn ghost" data-act="go" data-v="settings">Настройки</button></nav>' +
+      '<button class="deeper" data-act="go" data-v="guide">Хочу глубже: гайд «Родитель, Взрослый, Ребёнок» →</button>';
     return h;
   }
 
@@ -275,7 +296,10 @@
   function finishTask(kind, correct) {
     sess.cur.answered = true;
     sess.cur.correct = correct;
-    sess.results.push({ id: sess.tasks[sess.i].id, kind, correct, hinted: sess.cur.hinted });
+    const t = sess.tasks[sess.i];
+    const rec = { id: t.id, kind, correct, hinted: sess.cur.hinted };
+    if (kind === 'choice') { rec.picked = t.opts[sess.cur.pick][0]; rec.right = t.opts.find(o => o[2])[0]; }
+    sess.results.push(rec);
     render();
   }
 
@@ -306,7 +330,8 @@
       lvl: sess.lvl, pct, correct, eligible: eligible.length,
       hinted: scored.length - eligible.length,
       reforms: sess.results.filter(r => r.kind === 'reform').length,
-      opened
+      opened,
+      hook: pickHook(sess.results, sess.lvl)
     };
     go('result');
   }
@@ -330,9 +355,7 @@
     }
     r.opened.forEach(o => { h += '<div class="opened">' + esc(o) + '</div>'; });
 
-    if (r.lvl !== 'mix') {
-      h += '<p class="guide-link">Подробнее об этом — в ' + LEVELS[r.lvl - 1].chapter + ' гайда <a href="' + GUIDE_URL + '" target="_blank" rel="noopener">«Родитель, Взрослый, Ребёнок»</a></p>';
-    }
+    if (r.hook && hookOpen(r.hook)) h += hookCard(r.hook);
     h += '<div class="actions"><button class="btn" data-act="start" data-lvl="' + r.lvl + '">Ещё тренировка</button>' +
       '<button class="btn ghost" data-act="home">На главную</button></div></section>';
     return h;
@@ -349,7 +372,7 @@
       if (theoryUnlocked(lvl)) h += cards.map(cardHtml).join('');
       else h += '<p class="muted small locked-line">🔒 Откроется вместе с ' + (lvl === 5 ? '«Моим голосом»' : 'уровнем ' + lvl) + '</p>';
     });
-    h += '<p class="guide-link">Всё подробно, с заданиями и практиками — в гайде <a href="' + GUIDE_URL + '" target="_blank" rel="noopener">«Родитель, Взрослый, Ребёнок»</a></p>';
+    h += '<button class="deeper" data-act="go" data-v="guide">Хочу глубже: гайд «Родитель, Взрослый, Ребёнок» →</button>';
     return h;
   }
 
@@ -478,6 +501,16 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  // ---------- О гайде ----------
+  function guide() {
+    let h = backBar('Хочу глубже');
+    h += '<section class="card guide-card"><div class="eyebrow">Гайд-практикум · PDF</div><h2>Родитель, Взрослый, Ребёнок</h2>' +
+      '<p>Тренажёр учит узнавать состояния. Гайд объясняет, почему они включаются и что с этим делать</p>' +
+      '<p>В гайде — эго-состояния, транзакции, треугольник Карпмана и работа с внутренним критиком. С примерами из жизни и упражнениями</p>' +
+      '<a class="btn" href="' + GUIDE_URL + '" target="_blank" rel="noopener">Читать гайд</a></section>';
+    return h;
+  }
+
   // ---------- Настройки ----------
   function settings() {
     let h = backBar('Настройки');
@@ -498,6 +531,8 @@
 
   // ---------- События ----------
   app.addEventListener('click', e => {
+    const hl = e.target.closest('[data-hook-link]');
+    if (hl) closeHook(hl.dataset.hookLink);
     const b = e.target.closest('[data-act]');
     if (!b) return;
     const act = b.dataset.act;
@@ -530,6 +565,7 @@
       finishTask('match', t.pairs.every((p, i) => picks[i] === p[1]));
     }
     else if (act === 'next') next();
+    else if (act === 'hook-close') { closeHook(b.dataset.hook); const card = b.closest('.hook'); if (card) card.remove(); }
     else if (act === 'copy') copyDiary();
     else if (act === 'file') fileDiary();
     else if (act === 'del') {
