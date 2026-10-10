@@ -12,7 +12,7 @@
 
   // ---------- Хранилище ----------
   function fresh() {
-    return { runs: { 1: [], 2: [], 3: [], 4: [] }, seen: {}, hooks: {}, code: false, diary: [], introSeen: false, installHidden: false };
+    return { runs: { 1: [], 2: [], 3: [], 4: [] }, seen: {}, hooks: {}, lastBackup: 0, backupSnooze: 0, code: false, diary: [], introSeen: false, installHidden: false };
   }
   let st = fresh();
   try {
@@ -55,6 +55,49 @@
     t.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ---------- Резервная копия ----------
+  const DAY = 24 * 60 * 60 * 1000;
+  const totalRuns = () => [1, 2, 3, 4].reduce((s, n) => s + runsOf(n).length, 0);
+  const hasData = () => st.diary.length > 0 || totalRuns() >= 3;
+  const backupDue = () => hasData() && Date.now() - (st.lastBackup || 0) > 14 * DAY && Date.now() > (st.backupSnooze || 0);
+  const lastBackupText = () => st.lastBackup ? 'Последняя копия: ' + fmtDate(st.lastBackup) : 'Копия ещё не сохранялась';
+  function saveFile(name, text, type, title) {
+    const blob = new Blob([text], { type });
+    try {
+      const file = new File([blob], name, { type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title }).catch(() => {});
+        return;
+      }
+    } catch (e) {}
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  function exportBackup() {
+    st.lastBackup = Date.now();
+    save();
+    const data = JSON.stringify({ app: 'ta-trener', version: 1, date: st.lastBackup, state: st }, null, 1);
+    saveFile('trener-kopiya-' + new Date().toISOString().slice(0, 10) + '.json', data, 'application/json', 'Копия тренажёра');
+    render();
+  }
+  function importBackup(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      let obj = null;
+      try { obj = JSON.parse(reader.result); } catch (e) {}
+      if (!obj || obj.app !== 'ta-trener' || !obj.state || !obj.state.runs) { toast('Это не копия тренажёра'); return; }
+      if (!confirm('Заменить данные на телефоне данными из копии от ' + fmtDate(obj.date) + '?')) return;
+      st = Object.assign(fresh(), obj.state);
+      save();
+      go('home');
+      toast('Данные восстановлены');
+    };
+    reader.readAsText(file);
   }
 
   // ---------- Прогресс ----------
@@ -125,6 +168,13 @@
         '<button class="link" data-act="hide-install">Скрыть</button></section>';
     }
 
+    if (backupDue()) {
+      h += '<section class="note backup-note"><b>Пора сохранить копию</b>' +
+        '<p>Прогресс и дневник хранятся только на этом телефоне. Копия поможет ничего не потерять</p>' +
+        '<div class="row-btns"><button class="btn small-btn" data-act="backup">Сохранить копию</button>' +
+        '<button class="link" data-act="snooze">Позже</button></div></section>';
+    }
+
     h += '<div class="list">';
     LEVELS.forEach(L => {
       const open = unlocked(L.n);
@@ -164,7 +214,8 @@
 
     h += '<nav class="bottom-links"><button class="btn ghost" data-act="go" data-v="theory">Теория</button>' +
       '<button class="btn ghost" data-act="go" data-v="settings">Настройки</button></nav>' +
-      '<button class="deeper" data-act="go" data-v="guide">Хочу глубже: гайд «Родитель, Взрослый, Ребёнок» →</button>';
+      '<button class="deeper" data-act="go" data-v="guide">Хочу глубже: гайд «Родитель, Взрослый, Ребёнок» →</button>' +
+      '<p class="local-line">Всё хранится только на этом телефоне. <button class="link" data-act="go" data-v="settings">Сохранить копию</button></p>';
     return h;
   }
 
@@ -413,7 +464,7 @@
       h += '<p class="muted">Здесь появятся твои записи</p>';
     } else {
       h += '<div class="export"><button class="btn ghost" data-act="copy">Скопировать текст</button><button class="btn ghost" data-act="file">Сохранить файл</button></div>' +
-        '<p class="muted small">Записи хранятся только на этом телефоне. Время от времени сохраняй файл, чтобы не потерять их</p>';
+        '<p class="muted small">Записи хранятся только на этом телефоне. «Скопировать текст» и «Сохранить файл» — чтобы показать их психологу. Чтобы ничего не потерять, сохраняй полную копию в настройках. ' + lastBackupText() + '</p>';
       st.diary.slice().reverse().forEach(e => {
         h += '<article class="entry"><div class="date">' + fmtDate(e.date) + '</div>' +
           '<p class="e-thought">' + highlight(e.thought).html + '</p>' +
@@ -485,20 +536,7 @@
     else fallback();
   }
   function fileDiary() {
-    const name = 'moy-golos-' + new Date().toISOString().slice(0, 10) + '.txt';
-    const blob = new Blob([diaryText()], { type: 'text/plain' });
-    try {
-      const file = new File([blob], name, { type: 'text/plain' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], title: 'Дневник «Мой голос»' }).catch(() => {});
-        return;
-      }
-    } catch (e) {}
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    saveFile('moy-golos-' + new Date().toISOString().slice(0, 10) + '.txt', diaryText(), 'text/plain', 'Дневник «Мой голос»');
   }
 
   // ---------- О гайде ----------
@@ -514,13 +552,21 @@
   // ---------- Настройки ----------
   function settings() {
     let h = backBar('Настройки');
+    h += '<section class="card"><h2>Твои данные</h2>' +
+      '<p>Всё, что ты делаешь в тренажёре, хранится только на этом телефоне: прогресс по уровням, дневник «Мой голос» и настройки. Никуда не отправляется, и никто, включая меня, этого не видит</p>' +
+      '<p>Поэтому данные могут пропасть, если удалить тренажёр с экрана «Домой», очистить историю и данные Safari, сменить телефон или долго не открывать тренажёр. Раз в пару недель сохраняй копию в «Файлы» или в заметки, а на новом телефоне восстанови её</p>' +
+      '<p class="muted small">' + lastBackupText() + '</p>' +
+      '<div class="row-btns"><button class="btn" data-act="backup">Сохранить копию</button>' +
+      '<button class="btn ghost" data-act="restore">Восстановить из копии</button></div>' +
+      '<input type="file" id="restore-file" accept="application/json,.json" hidden></section>';
+
     h += '<section class="card"><h2>Код психолога</h2>';
     if (st.code) h += '<p>Код введён: все уровни и «Мой голос» открыты</p>';
     else h += '<p class="muted">Если психолог дала тебе код, введи его здесь, и все режимы откроются сразу</p>' +
       '<div class="row"><input id="code" type="text" autocomplete="off" autocapitalize="off" placeholder="Код"><button class="btn" data-act="code">Открыть</button></div>';
     h += '</section>';
 
-    h += '<section class="card"><h2>Как установить на iPhone</h2><p>Открой тренажёр в Safari, нажми «Поделиться», затем «На экран „Домой“». Всё хранится только на твоём телефоне, без регистрации и интернета</p></section>';
+    h += '<section class="card"><h2>Как установить на iPhone</h2><p>Открой тренажёр в Safari, нажми «Поделиться», затем «На экран „Домой“». Так он работает без интернета, и данные хранятся надёжнее, чем во вкладке браузера</p></section>';
 
     h += '<section class="card"><h2>Начать заново</h2><p class="muted">Сбросит прогресс тренировок. Дневник «Мой голос» останется</p>' +
       '<button class="btn ghost danger" data-act="reset">Сбросить прогресс</button></section>';
@@ -565,6 +611,9 @@
       finishTask('match', t.pairs.every((p, i) => picks[i] === p[1]));
     }
     else if (act === 'next') next();
+    else if (act === 'backup') exportBackup();
+    else if (act === 'snooze') { st.backupSnooze = Date.now() + 7 * DAY; save(); render(); }
+    else if (act === 'restore') { const f = document.getElementById('restore-file'); if (f) f.click(); }
     else if (act === 'hook-close') { closeHook(b.dataset.hook); const card = b.closest('.hook'); if (card) card.remove(); }
     else if (act === 'copy') copyDiary();
     else if (act === 'file') fileDiary();
@@ -579,6 +628,10 @@
     else if (act === 'reset') {
       if (confirm('Сбросить прогресс тренировок?')) { st.runs = fresh().runs; save(); toast('Прогресс сброшен'); go('home'); }
     }
+  });
+
+  app.addEventListener('change', e => {
+    if (e.target.id === 'restore-file' && e.target.files && e.target.files[0]) importBackup(e.target.files[0]);
   });
 
   document.getElementById('sheet').addEventListener('click', e => {
