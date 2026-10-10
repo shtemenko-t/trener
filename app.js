@@ -12,7 +12,7 @@
 
   // ---------- Хранилище ----------
   function fresh() {
-    return { runs: { 1: [], 2: [], 3: [], 4: [] }, code: false, diary: [], introSeen: false, installHidden: false };
+    return { runs: { 1: [], 2: [], 3: [], 4: [] }, seen: {}, code: false, diary: [], introSeen: false, installHidden: false };
   }
   let st = fresh();
   try {
@@ -151,10 +151,18 @@
   function startSession(lvl) {
     const levels = lvl === 'mix' ? LEVELS.map(L => L.n).filter(unlocked) : [lvl];
     const pool = TASKS.filter(t => levels.indexOf(t.lvl) !== -1);
-    const choice = shuffle(pool.filter(t => t.type === 'choice'));
-    const other = shuffle(pool.filter(t => t.type !== 'choice')).slice(0, 2);
+    // Сначала задания, которых ещё не было, потом уже знакомые
+    const seen = (st.seen && st.seen[lvl]) || [];
+    const fresh1 = list => shuffle(list.filter(t => seen.indexOf(t.id) === -1)).concat(shuffle(list.filter(t => seen.indexOf(t.id) !== -1)));
+    const choice = fresh1(pool.filter(t => t.type === 'choice'));
+    const other = fresh1(pool.filter(t => t.type !== 'choice')).slice(0, 2);
     const size = Math.min(pool.length, 8 + Math.floor(Math.random() * 3));
     const tasks = shuffle(other.concat(choice.slice(0, Math.max(0, size - other.length))));
+    st.seen = st.seen || {};
+    let nextSeen = seen.concat(tasks.map(t => t.id).filter(id => seen.indexOf(id) === -1));
+    if (pool.every(t => nextSeen.indexOf(t.id) !== -1)) nextSeen = tasks.map(t => t.id);
+    st.seen[lvl] = nextSeen;
+    save();
     const orders = {};
     tasks.forEach(t => {
       if (t.type === 'choice') orders[t.id] = shuffle(t.opts.map((_, i) => i));

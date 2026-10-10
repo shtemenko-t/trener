@@ -1,5 +1,5 @@
-const CACHE = 'ta-trener-v1';
-const SHELL = ['./', 'index.html', 'styles.css?v=1', 'data.js?v=1', 'app.js?v=1', 'manifest.webmanifest',
+const CACHE = 'ta-trener-v2';
+const SHELL = ['./', 'index.html', 'styles.css?v=2', 'data.js?v=2', 'app.js?v=2', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
